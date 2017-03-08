@@ -30,6 +30,43 @@ catch(ex) {}
 // start the mongodb server
 require('child_process').spawn('/usr/bin/mongod', [`--dbpath=${mongodb_folder}`,`--port=${mongodb_port}`]);
 
+(function wipeAtMidnight() {
+    var millis_per_day = (24 * 60 * 60 * 1000);
+    var millis_until_midnight = millis_per_day - (new Date().getTime() % millis_per_day);
+    setTimeout(() => {
+        // wipe the db
+        clearLocationUpdates();
+        // and do it again tomorrow...
+        wipeAtMidnight();
+    }, millis_until_min);
+})();
+
+function clearLocationUpdates() {
+    return new Promise((res, rej) => {
+        MongoClient.connect(mongodb_url, function (err, db) {
+            if (err) return rej(err);
+            // get a list of all the collections
+            db.listCollections().toArray(function (err, collections) {
+                if (err) {
+                    db.close();
+                    return rej(err);
+                }
+                console.log(`Dropping ${collections.length} collections`);
+                // drop them one at a time
+                const dropNext = coll => {
+                    if (!coll.length) {
+                        db.close();
+                        return res();   // finished
+                    }
+                    db.collection(coll.shift().name).drop(err => {
+                        dropNext(coll);
+                    });
+                }
+                dropNext(collections);
+            });
+        });
+    })
+}
 
 function saveLocationUpdates(id, locations) {
     return new Promise((res,rej) => {
@@ -134,6 +171,10 @@ const requestHandler = {
                     var locations = JSON.parse(Buffer.concat(chunks).toString('utf8'));
                     // make sure the location data is what we expect
                     check_update(locations);
+                    // filter out any locations from the client that are not from today
+                    var today = new Date().toISOString().slice(0, 'YYYY-MM-DD'.length);
+                    locations = locations.filter(loc => loc.time.slice(0,today.length) === today);
+
                 } catch (e) {
                     completeRequest(res, 400, { error: "Data validation failed", ex: e });
                     return;

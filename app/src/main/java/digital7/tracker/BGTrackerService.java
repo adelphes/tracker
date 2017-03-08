@@ -133,8 +133,9 @@ public class BGTrackerService extends Service {
 
     private void setNotification(String subtext) {
         Notification noti = new Notification.Builder(this)
-                .setContentTitle("Tracker")
+                .setContentTitle("Tracker: " + TrackerPrefs.getTrackerID(this))
                 .setContentText("Tracker is monitoring your device location")
+                .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), 0))
                 .setSubText(subtext)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setOngoing(true)

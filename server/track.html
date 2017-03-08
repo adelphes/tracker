@@ -110,16 +110,21 @@
             function onTrackidKeyup(e) {
                 if (/^enter$/i.test(e.key)) {
                     var trackid_input = document.getElementById('trckid');
+                    var errmsg_el = document.getElementById('errmsg');
                     trackid_input.readOnly = true;
+                    trackid_input.className = "";
                     // retrieve the location data from the server
                     getLocations(trackid_input.value, (err, locations) => {
                         if (err) {
                             trackid_input.readOnly = false;
                             trackid_input.className += " fail";
+                            errmsg_el.textContent = err.message;
+                            errmsg_el.style.opacity = 1;
                             trackid_input.focus();
                             return;
                         }
                         trackid_input.className += " ok";
+                        errmsg_el.style.opacity = 0;
                         initTrackerData(locations);
                     });
                 }
@@ -132,7 +137,12 @@
                     if (xhr.readyState !== 4) return;
                     if (xhr.status === 200) {
                         var err, res;
-                        try { res = JSON.parse(xhr.responseText).data; }
+                        try { 
+                            res = JSON.parse(xhr.responseText).data; 
+                            // report an error if there's no data to show
+                            if (!res || !res.length) 
+                                throw new Error('No tracking data found for ID: '+id);
+                        }
                         catch(e) { err = e } 
                         cb && cb(err, res);
                     } else {
