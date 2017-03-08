@@ -113,8 +113,10 @@
                     var errmsg_el = document.getElementById('errmsg');
                     trackid_input.readOnly = true;
                     trackid_input.className = "";
+                    var id = trackid_input.value.trim();
+                    if (!id) return;    // do nothing if no id is entered
                     // retrieve the location data from the server
-                    getLocations(trackid_input.value, (err, locations) => {
+                    getLocations(id, (err, locations) => {
                         if (err) {
                             trackid_input.readOnly = false;
                             trackid_input.className += " fail";
@@ -135,18 +137,28 @@
                 xhr.open("GET", `/v1/locations/${id}/get`, true);
                 xhr.onload = function (e) {
                     if (xhr.readyState !== 4) return;
-                    if (xhr.status === 200) {
-                        var err, res;
-                        try { 
-                            res = JSON.parse(xhr.responseText).data; 
-                            // report an error if there's no data to show
-                            if (!res || !res.length) 
-                                throw new Error('No tracking data found for ID: '+id);
-                        }
-                        catch(e) { err = e } 
-                        cb && cb(err, res);
-                    } else {
-                        cb && cb(new Error(xhr.statusText), locations);
+                    switch (xhr.status) {
+                        case 200:
+                            var err, res;
+                            try { 
+                                res = JSON.parse(xhr.responseText).data; 
+                                // report an error if there's no data to show
+                                if (!res || !res.length) 
+                                    throw new Error('No tracking data found for ID: '+id);
+                            }
+                            catch(e) { err = e } 
+                            cb && cb(err, res);
+                            break;
+                        case 400:
+                        case 401:
+                        case 404:
+                            // invalid id
+                            cb && cb(new Error('No tracking data found for ID: ' + id));
+                            break;
+                        default:
+                            // something else is wrong on the server
+                            cb && cb(new Error('Service is unavailable: ' + xhr.status));
+                            break;
                     }
                     cb = null;
                 };
