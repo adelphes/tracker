@@ -1,3 +1,5 @@
+'use strict'
+
 const http = require('http'),
     fs = require('fs'),
     path = require('path'),
@@ -38,7 +40,7 @@ require('child_process').spawn('/usr/bin/mongod', [`--dbpath=${mongodb_folder}`,
         clearLocationUpdates();
         // and do it again tomorrow...
         wipeAtMidnight();
-    }, millis_until_min);
+    }, millis_until_midnight);
 })();
 
 function clearLocationUpdates() {
