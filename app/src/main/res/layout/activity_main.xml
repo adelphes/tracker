@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <TextView
+        android:text="Tracker ID:"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="30dp"
+        android:padding="4dp"
+        android:layout_above="@+id/trackerid"
+        android:layout_centerHorizontal="true"
+        />
+    <TextView
+        android:id="@+id/trackerid"
+        android:text=""
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:padding="10dp"
+        android:textSize="60dp"
+        android:layout_above="@+id/tv1"
+        android:layout_centerHorizontal="true"
+        />
+    <TextView
+        android:id="@+id/tv1"
+        android:text="You can track your device location at:"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_above="@+id/clientinfo"
+        android:layout_centerHorizontal="true"
+        />
+    <TextView
+        android:id="@+id/clientinfo"
+        android:text=""
+        android:autoLink="web"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingBottom="30dp"
+        android:layout_above="@+id/trackingBtn"
+        android:layout_centerHorizontal="true"
+        />
+    <Button
+        android:id="@+id/trackingBtn"
+        android:text="Toggle Tracking"
+        android:padding="20dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        />
+
+</RelativeLayout>

@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Server",
+            "program": "${workspaceRoot}/server/server.js"
+        },
+        {
+            "type": "android",
+            "name": "Android Debug",
+            "request": "launch",
+            "appSrcRoot": "${workspaceRoot}/app/src/main",
+            "apkFile": "${workspaceRoot}/app/build/outputs/apk/app-debug.apk",
+            "adbPort": 5037
+        }
+    ]
+}

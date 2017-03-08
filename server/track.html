@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Tracker</title>
+        <style>
+            #map {
+                height: 500px;
+                width: 100%;
+            }
+            #trckid {
+                font-size: 1.4em;
+                margin-bottom: .5em;
+                text-align: center;
+                width: 10em;
+                padding: .2em;
+                border: 1px solid #888;
+                border-radius: .2em;
+            }
+            #trckid.ok { border-color: green; color:green; }
+            #trckid.fail { border-color: red; color:red; }
+            body {
+                font-family: "Open Sans",Arial,sans-serif;
+                text-align: center;
+            }
+            .fadein { opacity: 1; transition: opacity 2s ease-in-out; -moz-transition: opacity 2s ease-in-out; -webkit-transition: opacity 2s ease-in-out; }
+        </style>
+    </head>
+    <body>
+        <h3>Tracker</h3>
+        <div><input id="trckid" type="text" placeholder="Tracker ID" onkeyup="onTrackidKeyup(event)"></div>
+        <div id="errmsg" style="opacity:0">Error placeholder</div>
+        <div id="map" style="opacity:0"></div>
+        <script>
+            // we create two promises: one for the Google Map loading and the other for
+            // the tracker ID data - when both are resolved we show the map
+            var initMap, initTrackerData, trackerData;
+            var map_ready = new Promise((res, rej) => {
+                initMap = () => res();
+            });
+            var tracker_data_ready = new Promise((res, rej) => {
+                initTrackerData = (data) => {
+                    trackerData = data;
+                    res();
+                }
+            });
+
+            Promise.all([map_ready, tracker_data_ready]).then(() => {
+                var locations = trackerData;
+
+                // before we do any processing, make sure the data is sorted by time and remove any duplicates
+                locations = locations.sort((a,b) => a.time.localeCompare(b.time))
+                    .filter((loc,idx,arr) => {
+                        if (idx === 0) return true;
+                        var prev = arr[idx-1];
+                        if ((loc.lat === prev.lat) && (loc.long === prev.long))
+                            return false;   // duplicate
+                        return true;
+                    });
+
+                // center the map in the middle of the locations
+                var x = locations[0];
+                x = x ? { n: x.lat, s: x.lat, e: x.long, w: x.long }
+                    : { n: 51.5, s: 51.5, e: -0.1, w: -0.1 }; // make a sensible default of the center(ish) of London
+                locations.forEach(function(loc) {
+                    x.n = Math.max(x.n, loc.lat);
+                    x.s = Math.min(x.s, loc.lat);
+                    x.e = Math.min(x.e, loc.long);
+                    x.w = Math.max(x.w, loc.long);
+                });
+                var map_el = document.getElementById('map');
+                var point = { lat: (x.n + x.s) / 2, lng: (x.e + x.w) / 2 };
+                map = new google.maps.Map(map_el, {
+                    zoom: 14, 
+                    center: point,
+                });
+                // set markers at the start and end points
+                var first = locations[0], last = locations.slice(-1)[0];
+                if (locations.length >= 2) {
+                    new google.maps.Marker({ 
+                        position: { lat: first.lat, lng: first.long }, 
+                        map: map, animation: google.maps.Animation.DROP,
+                        title: `Start: ${first.time.replace('T', ' ').replace(/Z.+/, '')}`,
+                        });
+                }
+                if (locations.length >= 1) {
+                    new google.maps.Marker({ position: { 
+                        lat: last.lat, lng: last.long }, 
+                        map: map, animation: google.maps.Animation.DROP,
+                        icon: 'http://maps.google.com/mapfiles/ms/icons/purple-dot.png',
+                        title: `End: ${last.time.replace('T', ' ').replace(/Z.+/, '')}`,
+                    });
+                }
+
+                var trackCoordinates = locations.map(loc => ({lat: loc.lat, lng: loc.long }));
+                var trackPath = new google.maps.Polyline({
+                    path: trackCoordinates, 
+                    geodesic: true, 
+                    strokeColor:'#FF0000', 
+                    strokeOpacity: 1.0, 
+                    strokeWeight: 1
+                }); 
+                trackPath.setMap(map);
+
+                map_el.className += " fadein";
+                map_el.style.opacity = '';
+            });
+
+            function onTrackidKeyup(e) {
+                if (/^enter$/i.test(e.key)) {
+                    var trackid_input = document.getElementById('trckid');
+                    trackid_input.readOnly = true;
+                    // retrieve the location data from the server
+                    getLocations(trackid_input.value, (err, locations) => {
+                        if (err) {
+                            trackid_input.readOnly = false;
+                            trackid_input.className += " fail";
+                            trackid_input.focus();
+                            return;
+                        }
+                        trackid_input.className += " ok";
+                        initTrackerData(locations);
+                    });
+                }
+            }
+
+            function getLocations(id, cb) {
+                var xhr = new XMLHttpRequest(); 
+                xhr.open("GET", `/v1/locations/${id}/get`, true);
+                xhr.onload = function (e) {
+                    if (xhr.readyState !== 4) return;
+                    if (xhr.status === 200) {
+                        var err, res;
+                        try { res = JSON.parse(xhr.responseText).data; }
+                        catch(e) { err = e } 
+                        cb && cb(err, res);
+                    } else {
+                        cb && cb(new Error(xhr.statusText), locations);
+                    }
+                    cb = null;
+                };
+                xhr.onerror = function (e) { 
+                    cb && cb(e);
+                    cb = null;
+                }; 
+                xhr.send(null);
+            }
+
+            document.getElementById('trckid').focus();
+        </script>
+        <!-- AIzaSyBXBVUdxql9zySpsJSmQTQ22yNB80EdCwM -->
+        <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBXBVUdxql9zySpsJSmQTQ22yNB80EdCwM&callback=initMap">
+        </script>
+    </body>
+</html>
