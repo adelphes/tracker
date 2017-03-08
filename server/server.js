@@ -2,7 +2,6 @@ const http = require('http'),
     fs = require('fs'),
     path = require('path'),
     MongoClient = require('mongodb').MongoClient,
-    dburl = 'mongodb://localhost:27018/tracker',
     IP='0.0.0.0', PORT = 8060,
     track_html_fpn = path.join(__dirname, 'track.html');
 
@@ -22,9 +21,19 @@ const mimetypes = {
 var track_html = fs.readFileSync(track_html_fpn, 'utf8'),
     track_html_stat_mtime = fs.statSync(track_html_fpn).mtime.getTime();
 
+// setup the database stuff - this is only done once during startup, so it's all synchronous
+const mongodb_folder = path.join(__dirname, 'data'),
+    mongodb_port = 27018,
+    mongodb_url = `mongodb://localhost:${mongodb_port}/tracker`;
+try { fs.mkdirSync(mongodb_folder); }
+catch(ex) {}
+// start the mongodb server
+require('child_process').spawn('/usr/bin/mongod', [`--dbpath=${mongodb_folder}`,`--port=${mongodb_port}`]);
+
+
 function saveLocationUpdates(id, locations) {
     return new Promise((res,rej) => {
-        MongoClient.connect(dburl, function (err, db) {
+        MongoClient.connect(mongodb_url, function (err, db) {
             if (err) return rej(err);
             // use one collection per tracker id
             var locs = db.collection('locations-'+id);
@@ -56,7 +65,7 @@ function check_update(locations) {
 
 function getLocations(id) {
     return new Promise((res, rej) => {
-        MongoClient.connect(dburl, function (err, db) {
+        MongoClient.connect(mongodb_url, function (err, db) {
             if (err) return rej(err);
             var locs = db.collection('locations-'+id);
             locs.find({ }).toArray(function (err, locations) {
