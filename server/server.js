@@ -2,7 +2,7 @@ const http = require('http'),
     fs = require('fs'),
     path = require('path'),
     MongoClient = require('mongodb').MongoClient,
-    IP='0.0.0.0', PORT = 8060,
+    IP='0.0.0.0', PORT = 80, // PORT = 8060,
     track_html_fpn = path.join(__dirname, 'track.html');
 
 const mimetypes = {
