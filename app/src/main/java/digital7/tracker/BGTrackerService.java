@@ -14,10 +14,10 @@ import org.json.*;
 public class BGTrackerService extends Service {
 
     public static final String TAG = "BGTrackerService";
-    // how often we retrieve location updates (seconds)
-    static final int POSITION_UPDATE_RATE_SECS = 10;
+    // how often we retrieve location updates (minutes)
+    static final int POSITION_UPDATE_RATE_MINS = 1;
     // how often we sync location data with the server (minutes)
-    static final int SERVER_SYNC_RATE_MINS = 1;
+    static final int SERVER_SYNC_RATE_MINS = 10;
 
     // instance of the tracker service and service ID doing the tracking
     static BGTrackerService TrackerService;
@@ -107,7 +107,7 @@ public class BGTrackerService extends Service {
                         sendToServer();
                     }
 
-                    try { Thread.currentThread().sleep(POSITION_UPDATE_RATE_SECS * 1000); }
+                    try { Thread.currentThread().sleep(POSITION_UPDATE_RATE_MINS * 60000); }
                     catch (Exception e) { break; }
                 }
                 Log.d(TAG, "Tracking thread finished");

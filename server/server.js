@@ -35,6 +35,7 @@ require('child_process').spawn('/usr/bin/mongod', [`--dbpath=${mongodb_folder}`,
 (function wipeAtMidnight() {
     var millis_per_day = (24 * 60 * 60 * 1000);
     var millis_until_midnight = millis_per_day - (new Date().getTime() % millis_per_day);
+    console.log(`next db wipe in ${millis_until_midnight/(60000)} minutes`);
     setTimeout(() => {
         // wipe the db
         clearLocationUpdates();
@@ -192,6 +193,8 @@ const requestHandler = {
 
 http.createServer(function (req, res) {
 
+    console.log(`${new Date().toISOString()} ${req.url}`);
+
     if (req.url === '/')
         return onTrackClientHTML(req, res);
     
@@ -201,7 +204,7 @@ http.createServer(function (req, res) {
     var m = req.url.match(/^\/(v\d+)\/locations\/(\d+)\/(.+)/);
     var api_handler = m && requestHandler[m[1]] && requestHandler[m[1]][m[3]];
     if (api_handler) {
-        return api_handler(req, res, parseInt(m[2]));
+        return api_handler(req, res, m[2]);
     }
 
     res.writeHead(404); // Not found
