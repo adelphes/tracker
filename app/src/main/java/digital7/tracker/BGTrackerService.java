@@ -84,7 +84,7 @@ public class BGTrackerService extends Service {
      * Begin monitoring location updates
      * @return true if location updates were started, false if already started or if an error occurs
     */
-    private boolean startTracking(LocationManager locationManager, final long serviceID) {
+    private boolean startTracking(final long serviceID) {
         if (!TrackingServiceID.compareAndSet(0, serviceID))
             return false; // already tracking
         TrackerService = this;
@@ -107,7 +107,7 @@ public class BGTrackerService extends Service {
                         sendToServer();
                     }
 
-                    try { Thread.currentThread().sleep(POSITION_UPDATE_RATE_MINS * 60000); }
+                    try { Thread.sleep(POSITION_UPDATE_RATE_MINS * 60000); }
                     catch (Exception e) { break; }
                 }
                 Log.d(TAG, "Tracking thread finished");
@@ -121,7 +121,7 @@ public class BGTrackerService extends Service {
         return true;
     }
 
-    private void stopTracking(LocationManager locationManager) {
+    private void stopTracking() {
         if (TrackingServiceID.getAndSet(0) == 0)
             return; // already stopped
         if (TrackerService != null)
@@ -171,7 +171,7 @@ public class BGTrackerService extends Service {
             synchronized(mCachedLocations) {
                 for (int i = mCachedLocations.size()-1; i >= 0; i--) {
                     // we can use String.compareTo to compare times because the value is stored as ISO8601
-                    if (((JSONObject)mCachedLocations.get(i)).getString("time").compareTo(lastLocationTime) <= 0)
+                    if (mCachedLocations.get(i).getString("time").compareTo(lastLocationTime) <= 0)
                         mCachedLocations.remove(i);
                 }
                 TrackerPrefs.saveLocationData(BGTrackerService.this, new JSONArray(mCachedLocations));
@@ -210,10 +210,10 @@ public class BGTrackerService extends Service {
 
         if (!isTracking) {
             mUpdateURL = updateURL;
-            if (!startTracking(locationManager, System.currentTimeMillis()))
+            if (!startTracking(System.currentTimeMillis()))
                 this.stopSelf();
         } else {
-            stopTracking(locationManager);
+            stopTracking();
             this.stopSelf();
         }
     }

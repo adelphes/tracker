@@ -19,12 +19,6 @@
             </intent-filter>
         </activity>
 
-        <receiver android:name=".MainActivity$BatteryLevelReceiver">
-            <intent-filter>
-                <action android:name="android.intent.action.BATTERY_LOW"/>
-            </intent-filter>
-        </receiver>
-
         <service
             android:name=".BGTrackerService"
             android:exported="false">

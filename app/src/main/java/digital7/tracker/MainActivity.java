@@ -1,10 +1,7 @@
 package digital7.tracker;
 
-import android.Manifest;
 import android.app.*;
-import android.content.res.Resources;
 import android.content.*;
-import android.content.pm.*;
 import android.os.*;
 import android.util.*;
 import android.view.*;
@@ -56,7 +53,7 @@ public class MainActivity extends Activity {
     private SharedPreferences.OnSharedPreferenceChangeListener onPrefsChanged = new SharedPreferences.OnSharedPreferenceChangeListener() {
         @Override
         public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
-            if (key == TrackerPrefs.SHARED_PREFS_TRACKING_ENABLED_KEY) {
+            if (key.equals(TrackerPrefs.SHARED_PREFS_TRACKING_ENABLED_KEY)) {
                 final boolean enabled = TrackerPrefs.isTrackingEnabled(MainActivity.this);
                 MainActivity.this.runOnUiThread(new Runnable() {
                     public void run() {
