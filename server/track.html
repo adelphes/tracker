@@ -4,6 +4,7 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <title>Tracker</title>
+
         <style>
             #map {
                 height: 500px;
@@ -32,10 +33,25 @@
         <div><input id="trckid" type="text" placeholder="Tracker ID" onkeyup="onTrackidKeyup(event)"></div>
         <div id="errmsg" style="opacity:0">Error placeholder</div>
         <div id="map" style="opacity:0"></div>
+        <div id="mapoptions" style="opacity:0">
+            <span>
+                <input type="checkbox" id="points" checked="checked">
+                <label for="points">Show points</label>
+            </span>
+            <span>
+                <input type="checkbox" id="line" checked="checked">
+                <label for="line">Show line</label>
+            </span>
+            <span>
+                <input type="checkbox" id="curve">
+                <label for="curve">Show curve</label>
+            </span>
+        </div>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.1/jquery.slim.min.js"></script>
         <script>
             // we create two promises: one for the Google Map loading and the other for
             // the tracker ID data - when both are resolved we show the map
-            var initMap, initTrackerData, trackerData;
+            var initMap, initTrackerData, trackerData, markers = [], curveOverlay, trackPath;
             var map_ready = new Promise((res, rej) => {
                 initMap = () => res();
             });
@@ -47,9 +63,36 @@
             });
 
             Promise.all([map_ready, tracker_data_ready]).then(() => {
-                var locations = trackerData;
-
                 // before we do any processing, make sure the data is sorted by time and remove any duplicates
+                var { locations, bounds } = filterAndFindBounds(trackerData);
+
+                // center the map in the middle of the location data
+                var map_el = document.getElementById('map');
+                var map_opts_el = document.getElementById('mapoptions');
+                var point = { lat: (bounds.n + bounds.s) / 2, lng: (bounds.e + bounds.w) / 2 };
+                var maxdim = Math.max(Math.abs(bounds.n - bounds.s), Math.abs(bounds.w - bounds.e));
+                map = new google.maps.Map(map_el, {
+                    zoom: maxdim < 2.4 ? (14.7-(6*maxdim))|0 : 0,
+                    center: point,
+                });
+
+                updateTracks(trackerData, {points:true,line:true,animation:google.maps.Animation.DROP});
+
+                map_el.className += " fadein";
+                map_opts_el.className += " fadein";
+                map_el.style.opacity = map_opts_el.style.opacity = '';
+
+                $(":checkbox").change(function() {
+                    // re-overlay the map with the new options
+                    var options = {};
+                    if ($("#points").is(':checked')) options.points = true;
+                    if ($("#line").is(':checked')) options.line = true;
+                    if ($("#curve").is(':checked')) options.curve = true;
+                    updateTracks(trackerData, options);
+                });
+            });
+
+            function filterAndFindBounds(locations) {
                 locations = locations.sort((a,b) => a.time.localeCompare(b.time))
                     .filter((loc,idx,arr) => {
                         if (idx === 0) return true;
@@ -66,55 +109,166 @@
                 locations.forEach(function(loc) {
                     x.n = Math.max(x.n, loc.lat);
                     x.s = Math.min(x.s, loc.lat);
-                    x.e = Math.min(x.e, loc.long);
-                    x.w = Math.max(x.w, loc.long);
+                    x.e = Math.max(x.e, loc.long);
+                    x.w = Math.min(x.w, loc.long);
                 });
-                var map_el = document.getElementById('map');
-                var point = { lat: (x.n + x.s) / 2, lng: (x.e + x.w) / 2 };
-                map = new google.maps.Map(map_el, {
-                    zoom: 14, 
-                    center: point,
-                });
+                return {locations, bounds:x};
+            }
+
+            function updateTracks(trackerData, opts) {
+                // clear any current data
+                markers.forEach(m => m.setMap(null));
+                curveOverlay && curveOverlay.setMap(null);
+                trackPath && trackPath.setMap(null);
+                markers = [], curveOverlay = null, trackPath = null;
+
+                var { locations, bounds } = filterAndFindBounds(trackerData);
+                
                 // set markers at the start and end points
                 var first = locations[0], last = locations.slice(-1)[0];
-                if (locations.length >= 2) {
-                    new google.maps.Marker({ 
-                        position: { lat: first.lat, lng: first.long }, 
-                        map: map, animation: google.maps.Animation.DROP,
-                        title: `Start: ${first.time.replace('T', ' ').replace(/Z.+/, '')}`,
-                        });
-                }
                 if (locations.length >= 1) {
-                    new google.maps.Marker({ position: { 
-                        lat: last.lat, lng: last.long }, 
-                        map: map, animation: google.maps.Animation.DROP,
+                    markers.push(new google.maps.Marker({ 
+                        position: { lat: first.lat, lng: first.long }, 
+                        map: map, animation: opts && opts.animation,
+                        title: `Start: ${first.time.replace('T', ' ').replace(/\.+/, '')}`,
+                        }));
+                }
+                if (locations.length >= 2) {
+                    markers.push(new google.maps.Marker({ 
+                        position: { lat: last.lat, lng: last.long }, 
+                        map: map, animation: opts && opts.animation,
                         icon: 'http://maps.google.com/mapfiles/ms/icons/purple-dot.png',
-                        title: `End: ${last.time.replace('T', ' ').replace(/Z.+/, '')}`,
-                    });
+                        title: `End: ${last.time.replace('T', ' ').replace(/\.+/, '')}`,
+                    }));
                 }
 
-                var trackCoordinates = locations.map(loc => ({lat: loc.lat, lng: loc.long }));
-                var trackPath = new google.maps.Polyline({
-                    path: trackCoordinates, 
-                    geodesic: true, 
-                    strokeColor:'#FF0000', 
-                    strokeOpacity: 1.0, 
-                    strokeWeight: 1
-                }); 
-                trackPath.setMap(map);
+                if (opts && opts.points) {
+                    var gpsdot = `data:image/svg+xml;utf8,<svg width="8" height="8" xmlns="http://www.w3.org/2000/svg"><circle fill="red" r="4" cx="4" cy="4"/></svg>`;
+                    for (var i=1, loc; i < locations.length-1; i++) {
+                            loc = locations[i];
+                            markers.push(new google.maps.Marker({ 
+                                position: { lat: loc.lat, lng: loc.long }, 
+                                map: map, animation: opts && opts.animation,
+                                icon: gpsdot,
+                                title: `${i}: ${loc.time.replace('T', ' ').replace(/\.+/, '')}`,
+                            }));                    
+                    }
+                }
 
-                map_el.className += " fadein";
-                map_el.style.opacity = '';
-            });
+                if (opts && opts.curve) {
+                    // split into groups of 3 points and generate evaluators for each group
+                    var quads = [];
+                    for(var i=0,x=locations,fx; i <= x.length - 3; i++) {
+                        fx = function quad(x_1,y_1,x_2,y_2,x_3,y_3,x) {
+                            return  y_1 * (x-x_2)*(x-x_3)/((x_1-x_2)*(x_1-x_3))
+                                + y_2 * (x-x_1)*(x-x_3)/((x_2-x_1)*(x_2-x_3))
+                                + y_3 * (x-x_1)*(x-x_2)/((x_3-x_1)*(x_3-x_2))
+                        }.bind(this, x[i].long, x[i].lat, x[i+1].long, x[i+1].lat, x[i+2].long, x[i+2].lat);
+                        
+                        // fx = (function circ3(A,B,C) {
+                        //     [ A,B,C ] = [A,B,C].sort((a,b) => a.x-b.x);
+                        //     var yDelta_a = B.y - A.y,
+                        //     xDelta_a = B.x - A.x,
+                        //     yDelta_b = C.y - B.y,
+                        //     xDelta_b = C.x - B.x;
+                        //     var center = {h:0,k:0};
+                        //     var aSlope = yDelta_a/xDelta_a;
+                        //     var bSlope = yDelta_b/xDelta_b;  
+                        //     center.h = (aSlope*bSlope*(A.y - C.y) + bSlope*(A.x + B.x)
+                        //         - aSlope*(B.x+C.x) )/(2* (bSlope-aSlope) );
+                        //     center.k = -1*(center.h - (A.x+B.x)/2)/aSlope +  (A.y+B.y)/2;
+                        //     // r2 = (x - h)2 + (y - k)2
+                        //     // y = \(r2 - (x - h)2) + k
+                        //     var rsquared = Math.pow(A.x - center.h, 2) + Math.pow(A.y - center.k, 2);
+                        //     return x => Math.sqrt(rsquared - Math.pow(x - center.h,2)) + center.k;
+                        // })({x:x[i].long, y:x[i].lat}, {x:x[i+1].long, y:x[i+1].lat}, {x:x[i+2].long, y:x[i+2].lat});
+
+                        // fx = (function hyper3(A,B,C) {
+                        //     var Dx = A.x - B.x, Dy = A.y - B.y,
+                        //     c = (Dx*A.x*A.y + A.x*A.x*A.y - A.x*B.x*B.y + A.x*A.y*C.x - B.x*B.y*C.x - Dx*C.x*C.y) / (Dx*C.y - Dx*A.y + Dy*A.x - Dy*C.x),
+                        //     b = (c*Dy + A.x*A.y - B.x*B.y) / Dx,
+                        //     a = A.y*(c + A.x) - b*A.x;
+                        //     return x => (a + b*x) / (c + x);
+                        // })({ x: x[i].long, y: x[i].lat }, { x: x[i + 1].long, y: x[i + 1].lat }, { x: x[i + 2].long, y: x[i + 2].lat });
+
+                        quads.push(fx);
+                    }
+
+                    // generate the curve by simple interpolation of the fns
+                    var points = [], points_per_mark = 100, x = locations[0].long, inc;
+                    for (var i = 0; i <= quads.length; i++) {
+                        inc = (locations[i + 1].long - x) / points_per_mark;
+                        if (i === 0) {
+                            // first: 100 -> 100 of the first q
+                            for (var j=0; j < points_per_mark; j++) {
+                                points.push({long:x, lat:quads[i](x) });
+                                x += inc;
+                            }
+                            continue;
+                        }
+                        if (i === quads.length) {
+                            // last: 100 -> 100 of the last q
+                            for (var j=0; j < points_per_mark; j++) {
+                                points.push({long:x, lat:quads[i-1](x) });
+                                x += inc;
+                            }
+                            continue;
+                        }
+                        // middle: 100 -> 0 of the prev q, 0 -> 100 this q
+                        for (var j=0; j < points_per_mark; j++) {
+                            points.push({long:x, lat: (quads[i-1](x) * (1-(j / points_per_mark))) + (quads[i](x) * (j / points_per_mark)) });
+                            x += inc;
+                        }
+                    }
+
+                    var curvepoints = `M${points.map(p => `${p.long*1000|0} ${p.lat*1000|0}`).join(' L')}`;
+                    var climits = points.reduce((x,p) => {
+                        x.t = Math.max(x.t, p.lat * 1000 | 0);
+                        x.b = Math.min(x.b, p.lat * 1000 | 0);
+                        x.l = Math.min(x.l, p.long * 1000 | 0);
+                        x.r = Math.max(x.r, p.long * 1000 | 0);
+                        return x;
+                    }, {t:-1e9,b:1e9,l:1e9,r:-1e9});
+                    var imageBounds = {
+                        north: climits.t/1000,
+                        south: climits.b / 1000,
+                        east: climits.r / 1000,
+                        west: climits.l / 1000,
+                    };
+                    var svgsize = {h: (climits.t - climits.b), w: (climits.r- climits.l)};
+                    var svgdata = 
+    `<svg width="${svgsize.w}" height="${svgsize.h}" xmlns="http://www.w3.org/2000/svg">
+        <g transform="translate(0,${svgsize.h}) scale(1,-1)">
+            <g transform="translate(${-climits.l},${-climits.b})">
+                <path d="${curvepoints}" stroke="blue" fill="transparent" stroke-width="3" />
+            </g>
+        </g>
+    </svg>`;
+                    curveOverlay = new google.maps.GroundOverlay(`data:image/svg+xml;utf8,${svgdata}`,imageBounds);
+                    curveOverlay.setMap(map);
+                }
+
+                if (opts && opts.line) {
+                    var trackCoordinates = locations.map(loc => ({lat: loc.lat, lng: loc.long }));
+                    trackPath = new google.maps.Polyline({
+                        path: trackCoordinates, 
+                        geodesic: true, 
+                        strokeColor:'#FF0000', 
+                        strokeOpacity: 1.0, 
+                        strokeWeight: 1
+                    }); 
+                    trackPath.setMap(map);
+                }
+            }
 
             function onTrackidKeyup(e) {
                 if (/^enter$/i.test(e.key)) {
                     var trackid_input = document.getElementById('trckid');
                     var errmsg_el = document.getElementById('errmsg');
-                    trackid_input.readOnly = true;
-                    trackid_input.className = "";
                     var id = trackid_input.value.trim();
                     if (!id) return;    // do nothing if no id is entered
+                    trackid_input.readOnly = true;
+                    trackid_input.className = "";
                     // retrieve the location data from the server
                     getLocations(id, (err, locations) => {
                         if (err) {
@@ -171,8 +325,6 @@
 
             document.getElementById('trckid').focus();
         </script>
-        <!-- AIzaSyBXBVUdxql9zySpsJSmQTQ22yNB80EdCwM -->
-        <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBXBVUdxql9zySpsJSmQTQ22yNB80EdCwM&callback=initMap">
-        </script>
+        <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBXBVUdxql9zySpsJSmQTQ22yNB80EdCwM&callback=initMap"></script>
     </body>
 </html>
