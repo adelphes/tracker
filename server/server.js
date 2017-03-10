@@ -87,8 +87,15 @@ function saveLocationUpdates(id, locations) {
 }
 
 function completeRequest(res, code, info) {
-    res.writeHead(code, { 'content-type': mimetypes.json });
-    res.end(JSON.stringify(info||{}));
+    var content = JSON.stringify(info || {});
+    res.writeHead(code, {
+        'Content-Type': mimetypes.json,
+        'Content-Length': '' + content.length,
+        'Cache-Control': "no-cache, no-store, must-revalidate",
+        'Pragma': "no-cache",
+        'Expires': "0",
+     });
+    res.end(content);
 }
 
 function check_update(locations) {
@@ -136,10 +143,12 @@ function onTrackClientHTML(req, res) {
             track_html_stat_mtime = mtime;
         }
     }
-    res.writeHead(200, { 
-        'content-type': mimetypes.html,
-        'content-length': ''+track_html.length,
-        'cache-control': 'no-cache',
+    res.writeHead(200, {
+        'Content-Type': mimetypes.html,
+        'Content-Length': ''+track_html.length,
+        'Cache-Control': "no-cache, no-store, must-revalidate",
+        'Pragma': "no-cache",
+        'Expires': "0",
     });
     res.end(track_html);
 }
