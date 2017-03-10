@@ -19,12 +19,16 @@ public class BGTrackerService extends Service {
     // how often we sync location data with the server (minutes)
     static final int SERVER_SYNC_RATE_MINS = 10;
 
-    // instance of the tracker service and service ID doing the tracking
+    // instance of the tracker service
     static BGTrackerService TrackerService;
-    static final AtomicLong TrackingServiceID = new AtomicLong(0);
+    static final AtomicBoolean Tracking = new AtomicBoolean(false);
 
     // for simplicity, the locations are stored as an list of JSON objects: {"lat":nnn, "long":nnn, "time":"<ISO8601>"}
     static final ArrayList<JSONObject> mCachedLocations = new ArrayList<>();
+    PendingIntent mUpdateIntent;
+    LocationListener mLocationListener;
+    int mMinsUntilNextPositionUpdate;
+    int mMinsUntilNextServerSync;
     String mUpdateURL; // the API update URL
 
     @Override
@@ -37,22 +41,22 @@ public class BGTrackerService extends Service {
     }
 
     public void onDestroy() {
-        NotificationManager notmgr = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (notmgr != null) notmgr.cancelAll();
-        super.onDestroy();
     }
     
-    private void saveCurrentLocation() {
-        LocationManager locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
-        if (locationManager == null)
-            return; // just in case
+    private void saveCurrentLocation(Location location) {
+        if (location == null) {
+            // use last known good
+            LocationManager locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
+            if (locationManager == null)
+                return; // just in case
 
-        Location location = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
-        // update to the GPS location if it's available (and more recent)
-        Location gps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-        if (gps != null) {
-            if (location == null || (gps.getTime() >= location.getTime()))
-                location = gps; // better match
+            location = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            // update to the GPS location if it's available (and more recent)
+            Location gps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            if (gps != null) {
+                if (location == null || (gps.getTime() >= location.getTime()))
+                    location = gps; // better match
+            }
         }
         if (location == null)
             return; // no location info
@@ -84,54 +88,103 @@ public class BGTrackerService extends Service {
      * Begin monitoring location updates
      * @return true if location updates were started, false if already started or if an error occurs
     */
-    private boolean startTracking(final long serviceID) {
-        if (!TrackingServiceID.compareAndSet(0, serviceID))
+    private boolean startTracking() {
+        if (Tracking.getAndSet(true))
             return false; // already tracking
         TrackerService = this;
+        Log.i(TAG, "Tracking started");
 
-        new Thread(new Runnable() {
-            public void run() {
-                // send any pending updates when we first run
-                sendToServer();
+        Intent ssIntent = new Intent(this, BGTrackerService.class);
+        ssIntent.putExtra("action", "update");
+        mUpdateIntent = PendingIntent.getService(this, 0, ssIntent, 0);
 
-                int mins = 0;
-                for (;;) {
-                    // check we're still actually tracking
-                    if (TrackingServiceID.get() != serviceID) 
-                        break;  // no longer tracking
+        // force an immediate update of the position and sync with server
+        saveCurrentLocation(null);
+        sendToServer();
 
-                    saveCurrentLocation();
-
-                    // send the updates to the server every 10 minutes
-                    if ((++mins % SERVER_SYNC_RATE_MINS) == 0) {
-                        sendToServer();
-                    }
-
-                    try { Thread.sleep(POSITION_UPDATE_RATE_MINS * 60000); }
-                    catch (Exception e) { break; }
-                }
-                Log.d(TAG, "Tracking thread finished");
-            }
-        }).start();
+        // set up the (wakable) alarm
+        mMinsUntilNextPositionUpdate = POSITION_UPDATE_RATE_MINS;
+        mMinsUntilNextServerSync = SERVER_SYNC_RATE_MINS;
+        AlarmManager am = (AlarmManager)this.getSystemService(Context.ALARM_SERVICE);
+        am.setRepeating(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime(), 60*1000, mUpdateIntent);
 
         // show a notification in the status bar while tracking is active
         setNotification("");
         TrackerPrefs.markTrackingEnabled(this, true);
-        Log.i(TAG, "Tracking started");
         return true;
     }
 
     private void stopTracking() {
-        if (TrackingServiceID.getAndSet(0) == 0)
+        if (!Tracking.getAndSet(false))
             return; // already stopped
-        if (TrackerService != null)
-            TrackerService.stopSelf();
-        TrackerService = null;
         TrackerPrefs.markTrackingEnabled(this, false);
+        NotificationManager notmgr = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (notmgr != null) notmgr.cancelAll();
+        if (TrackerService != null) {
+            TrackerService.cancelTrackingUpdates();
+            TrackerService.stopSelf();
+            TrackerService = null;
+        }
         Log.i(TAG, "Tracking stopped");
     }
 
+    private void cancelTrackingUpdates() {
+        if (mUpdateIntent != null) {
+            AlarmManager am = (AlarmManager)this.getSystemService(Context.ALARM_SERVICE);
+            am.cancel(mUpdateIntent);
+            mUpdateIntent = null;
+        }
+
+        if (mLocationListener != null) {
+            LocationManager lm = (LocationManager)this.getSystemService(Context.LOCATION_SERVICE);
+            lm.removeUpdates(mLocationListener);
+            mLocationListener = null;
+        }
+
+        // do a final send of any pending data
+        sendToServer();
+    }
+
+    private void updateTracking() {
+        Log.i(TAG, "updateTracking");
+
+        if (--mMinsUntilNextPositionUpdate <= 0) {
+            mMinsUntilNextPositionUpdate = POSITION_UPDATE_RATE_MINS;
+            // retrieve the any current GPS location - we could do this via last known good, but we get a better result
+            // by requesting a single update
+            //saveCurrentLocation(null);
+            if (mLocationListener == null) {
+                final LocationManager lm = (LocationManager)this.getSystemService(Context.LOCATION_SERVICE);
+                if (lm != null) {
+                    mLocationListener = new LocationListener() {
+                        public void onLocationChanged(Location location) {
+                            // turn off updates when we've got the position
+                            lm.removeUpdates(mLocationListener);
+                            mLocationListener = null;
+
+                            saveCurrentLocation(location);
+                        }
+
+                        public void onStatusChanged(String provider, int status, Bundle extras) {}
+
+                        public void onProviderEnabled(String provider) {}
+
+                        public void onProviderDisabled(String provider) {}
+                    };
+                    lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, mLocationListener);
+                }
+            }
+        }
+
+        if (--mMinsUntilNextServerSync <= 0) {
+            mMinsUntilNextServerSync = SERVER_SYNC_RATE_MINS;
+            sendToServer();
+        }
+    }
+
     private void setNotification(String subtext) {
+        if (!Tracking.get()) 
+            return;
         Notification noti = new Notification.Builder(this)
                 .setContentTitle("Tracker: " + TrackerPrefs.getTrackerID(this))
                 .setContentText("Tracker is monitoring your device location")
@@ -144,6 +197,20 @@ public class BGTrackerService extends Service {
         if (notmgr != null) notmgr.notify(1, noti);
     }
 
+    private synchronized void sendToServerSyncWithRetry() {
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,TAG);
+        wakeLock.acquire();
+        try {
+            for (int i=0; i < 3; i++) {
+                if (sendToServerSync())
+                    break;
+            }
+        } finally {
+            wakeLock.release();
+        }
+    }
+
     private synchronized boolean sendToServerSync() {
         try {
             JSONArray locations = TrackerPrefs.getLocationData(this);
@@ -151,7 +218,7 @@ public class BGTrackerService extends Service {
                 return true; // nothing to send - treat as a success
             byte[] data = locations.toString().getBytes();
 
-            Log.d(TAG, "Sending update: " + locations.toString());
+            Log.d(TAG, "Sending updates: " + locations.length());
             URL u = new URL(mUpdateURL);
             HttpURLConnection conn = (HttpURLConnection) u.openConnection();
             conn.setDoOutput(true);
@@ -163,7 +230,7 @@ public class BGTrackerService extends Service {
             os.close();
             int result = conn.getResponseCode();
             if (result != 200) {
-                Log.d(TAG, "Update returned error: " + result);
+                Log.d(TAG, "Update returned server response: " + result);
                 return false;
             }
             // if we successfully updated, remove the entries from the local shared prefs cache
@@ -189,31 +256,29 @@ public class BGTrackerService extends Service {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                sendToServerSync();
+                sendToServerSyncWithRetry();
             }
         }).start();
     }
 
     @Override
     public void onStart(Intent intent,int startid) {
-        // Acquire a reference to the system Location Manager
-        LocationManager locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
-        if (locationManager == null) {
-            // if there's no location support, there's not much we can do
-            Log.w(TAG, "Location support is not available");
+        if ("update".equals(intent.getStringExtra("action"))) {
+            if (TrackerService != null)
+                TrackerService.updateTracking();
             this.stopSelf();
             return;
         }
 
         String updateURL = intent.getStringExtra("update-url");
-        boolean isTracking = TrackingServiceID.get() != 0;
+        boolean isTracking = Tracking.get();
 
         if (!isTracking) {
-            mUpdateURL = updateURL;
-            if (!startTracking(System.currentTimeMillis()))
+            this.mUpdateURL = updateURL;
+            if (!this.startTracking())
                 this.stopSelf();
         } else {
-            stopTracking();
+            this.stopTracking();
             this.stopSelf();
         }
     }
